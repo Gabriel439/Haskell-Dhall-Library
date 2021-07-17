@@ -61,7 +61,7 @@ library
     , network-uri          >= 2.6.1.0  && < 2.7
     , prettyprinter        >= 1.5.1    && < 1.8
     , text                 >= 1.2.3.0  && < 1.3
-    , transformers         >= 0.5.5.0  && < 0.6
+    , transformers         >= 0.5.5.0  && < 0.7
     , unordered-containers >= 0.2.9.0  && < 0.3
     , uri-encode           >= 1.5.0.5  && < 1.6
   default-language: Haskell2010
