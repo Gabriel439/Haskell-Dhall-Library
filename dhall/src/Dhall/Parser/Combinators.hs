@@ -19,6 +19,7 @@ module Dhall.Parser.Combinators
     , takeWhile1
     , toMap
     , toMapWith
+    , base
     ) where
 
 
@@ -35,7 +36,7 @@ import Text.Parser.Combinators   (try, (<?>))
 import Text.Parser.Token         (TokenParsing (..))
 
 import qualified Control.Monad.Fail
-import qualified Data.Char
+import qualified Data.Char                               as Char
 import qualified Data.Text
 import qualified Data.Text.Prettyprint.Doc.Render.String as Pretty
 import qualified Dhall.Map
@@ -214,7 +215,7 @@ instance Text.Parser.Char.CharParsing Parser where
 instance TokenParsing Parser where
     someSpace =
         Text.Parser.Token.Style.buildSomeSpaceParser
-            (Parser (Text.Megaparsec.skipSome (Text.Megaparsec.satisfy Data.Char.isSpace)))
+            (Parser (Text.Megaparsec.skipSome (Text.Megaparsec.satisfy Char.isSpace)))
             Text.Parser.Token.Style.haskellCommentStyle
 
     highlight _ = id
@@ -279,3 +280,15 @@ toMapWith
 toMapWith combine kvs = sequence m
   where
     m = Dhall.Map.fromListWithKey combine (map (\(k, v) -> (k, pure v)) kvs)
+
+-- | Convert a list of digits to the equivalent number
+base :: Num n => [Char] -> n -> n
+digits `base` b = foldl snoc 0 (map (fromIntegral . digitToNumber) digits)
+  where
+    snoc result number = result * b + number
+
+    digitToNumber c
+        | '0' <= c && c <= '9' = 0x0 + Char.ord c - Char.ord '0'
+        | 'A' <= c && c <= 'F' = 0xA + Char.ord c - Char.ord 'A'
+        | 'a' <= c && c <= 'f' = 0xa + Char.ord c - Char.ord 'a'
+        | otherwise = error "Invalid hexadecimal digit"

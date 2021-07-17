@@ -578,6 +578,24 @@ infer typer = loop
         TextShow ->
             return (VText ~> VText)
 
+        Date ->
+            return (VConst Type)
+
+        DateLiteral _ ->
+            return VDate
+
+        Time ->
+            return (VConst Type)
+
+        TimeLiteral _ _ ->
+            return VTime
+
+        TimeZone ->
+            return (VConst Type)
+
+        TimeZoneLiteral _ ->
+            return VTimeZone
+
         List ->
             return (VConst Type ~> VConst Type)
 

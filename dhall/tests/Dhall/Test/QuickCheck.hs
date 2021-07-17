@@ -90,6 +90,7 @@ import qualified Data.Sequence
 import qualified Data.Set
 import qualified Data.SpecialValues
 import qualified Data.Text             as Text
+import qualified Data.Time             as Time
 import qualified Dhall.Binary
 import qualified Dhall.Context
 import qualified Dhall.Core
@@ -376,6 +377,12 @@ instance (Arbitrary s, Arbitrary a) => Arbitrary (Expr s a) where
             % (1 :: W "TextAppend")
             % (1 :: W "TextReplace")
             % (1 :: W "TextShow")
+            % (1 :: W "Date")
+            % (1 :: W "DateLiteral")
+            % (1 :: W "Time")
+            % (1 :: W "TimeLiteral")
+            % (1 :: W "TimeZone")
+            % (1 :: W "TimeZoneLiteral")
             % (1 :: W "List")
             % (1 :: W "ListLit")
             % (1 :: W "ListAppend")
@@ -434,6 +441,14 @@ standardizedExpression (Annot (ListLit Nothing _) _) =
     False
 standardizedExpression (Annot (ToMap _ Nothing) _) =
     False
+standardizedExpression (TimeZoneLiteral (Time.TimeZone _ b t)) =
+    not b && null t
+standardizedExpression (TimeLiteral (Time.TimeOfDay _ _ ss) precision) =
+    isInteger (ss * magnitude)
+  where
+    magnitude = 10 ^ precision
+
+    isInteger x = x == fromInteger (round x)
 standardizedExpression _ =
     True
 

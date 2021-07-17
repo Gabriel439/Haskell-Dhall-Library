@@ -50,9 +50,11 @@ import Dhall.Syntax
     )
 
 import Data.Foldable (toList)
+import Data.Ratio    ((%))
 import Data.Void     (Void, absurd)
 import GHC.Float     (double2Float, float2Double)
 import Numeric.Half  (fromHalf, toHalf)
+import Prelude hiding (exponent)
 
 import qualified Codec.CBOR.ByteArray
 import qualified Codec.CBOR.Decoding   as Decoding
@@ -66,6 +68,7 @@ import qualified Data.ByteString.Short
 import qualified Data.Foldable         as Foldable
 import qualified Data.List.NonEmpty    as NonEmpty
 import qualified Data.Sequence
+import qualified Data.Time             as Time
 import qualified Dhall.Crypto
 import qualified Dhall.Map
 import qualified Dhall.Syntax          as Syntax
@@ -133,9 +136,11 @@ decodeExpressionInternal decodeEmbed = go
 
                 case Data.ByteString.Short.length sb of
                     4  | sb == "Bool"              -> return Bool
+                       | sb == "Date"              -> return Date
                        | sb == "List"              -> return List
                        | sb == "None"              -> return None
                        | sb == "Text"              -> return Text
+                       | sb == "Time"              -> return Time
                        | sb == "Type"              -> return (Const Type)
                        | sb == "Kind"              -> return (Const Kind)
                        | sb == "Sort"              -> return (Const Sort)
@@ -143,6 +148,7 @@ decodeExpressionInternal decodeEmbed = go
                     7  | sb == "Integer"           -> return Integer
                        | sb == "Natural"           -> return Natural
                     8  | sb == "Optional"          -> return Optional
+                       | sb == "TimeZone"          -> return TimeZone
                     9  | sb == "List/fold"         -> return ListFold
                        | sb == "List/head"         -> return ListHead
                        | sb == "List/last"         -> return ListLast
@@ -566,6 +572,73 @@ decodeExpressionInternal decodeEmbed = go
 
                                 return (With l ks₁ r)
 
+                            30 -> do
+                                _YYYY <- Decoding.decodeInt
+                                _MM   <- Decoding.decodeInt
+                                _HH   <- Decoding.decodeInt
+
+                                case Time.fromGregorianValid (fromIntegral _YYYY) _MM _HH of
+                                    Nothing ->
+                                        die "Invalid date"
+                                    Just day ->
+                                        return (DateLiteral day)
+                            31 -> do
+                                hh <- Decoding.decodeInt
+                                mm <- Decoding.decodeInt
+                                tag₂ <- Decoding.decodeTag
+
+                                case tag₂ of
+                                    4 -> do
+                                        return ()
+                                    _ -> do
+                                        die ("Unexpected tag for decimal fraction: " <> show tag)
+                                n <- Decoding.decodeListLen
+
+                                case n of
+                                    2 -> do
+                                        return ()
+                                    _ -> do
+                                        die ("Invalid list length for decimal fraction: " <> show n)
+
+                                exponent <- Decoding.decodeInt
+
+                                tokenType₂ <- Decoding.peekTokenType
+
+                                mantissa <- case tokenType₂ of
+                                    TypeUInt -> do
+                                        fromIntegral <$> Decoding.decodeWord
+
+                                    TypeUInt64 -> do
+                                        fromIntegral <$> Decoding.decodeWord64
+
+                                    TypeNInt -> do
+                                        !i <- fromIntegral <$> Decoding.decodeNegWord
+
+                                        return (-1 - i)
+
+                                    TypeNInt64 -> do
+                                        !i <- fromIntegral <$> Decoding.decodeNegWord64
+
+                                        return (-1 - i)
+                                    TypeInteger -> do
+                                        Decoding.decodeInteger
+                                    _ ->
+                                        die ("Unexpected token type for mantissa: " <> show tokenType₂)
+                                let precision = fromIntegral (negate exponent)
+
+                                let ss = fromRational (mantissa % (10 ^ precision))
+
+                                return (TimeLiteral (Time.TimeOfDay hh mm ss) precision)
+                            32 -> do
+                                b   <- Decoding.decodeBool
+                                _HH <- Decoding.decodeInt
+                                _MM <- Decoding.decodeInt
+
+                                let sign = if b then id else negate
+
+                                let minutes = sign (_HH * 60 + _MM)
+
+                                return (TimeZoneLiteral (Time.TimeZone minutes False ""))
                             _ ->
                                 die ("Unexpected tag: " <> show tag)
 
@@ -673,6 +746,15 @@ encodeExpressionInternal encodeEmbed = go
 
         TextShow ->
             Encoding.encodeUtf8ByteArray "Text/show"
+
+        Date ->
+            Encoding.encodeUtf8ByteArray "Date"
+
+        Time ->
+            Encoding.encodeUtf8ByteArray "Time"
+
+        TimeZone ->
+            Encoding.encodeUtf8ByteArray "TimeZone"
 
         List ->
             Encoding.encodeUtf8ByteArray "List"
@@ -935,6 +1017,49 @@ encodeExpressionInternal encodeEmbed = go
                 (go l)
                 (encodeList (fmap Encoding.encodeString ks))
                 (go r)
+
+        DateLiteral day ->
+            encodeList4
+                (Encoding.encodeInt 30)
+                (Encoding.encodeInt (fromInteger _YYYY))
+                (Encoding.encodeInt _MM)
+                (Encoding.encodeInt _DD)
+          where
+            (_YYYY, _MM, _DD) = Time.toGregorian day
+
+        TimeLiteral (Time.TimeOfDay hh mm ss) precision ->
+            encodeList4
+                (Encoding.encodeInt 31)
+                (Encoding.encodeInt hh)
+                (Encoding.encodeInt mm)
+                (   Encoding.encodeTag 4
+                <>  encodeList2
+                        (Encoding.encodeInt exponent)
+                        encodedMantissa
+                )
+          where
+            exponent = negate (fromIntegral precision)
+
+            mantissa :: Integer
+            mantissa = truncate (ss * 10 ^ precision)
+
+            encodedMantissa
+                |  fromIntegral (minBound :: Int) <= mantissa
+                && mantissa <= fromIntegral (maxBound :: Int) =
+                    Encoding.encodeInt (fromInteger mantissa)
+                | otherwise =
+                    Encoding.encodeInteger mantissa
+
+        TimeZoneLiteral (Time.TimeZone minutes _ _) ->
+            encodeList4
+                (Encoding.encodeInt 32)
+                (Encoding.encodeBool sign)
+                (Encoding.encodeInt _HH)
+                (Encoding.encodeInt _MM)
+          where
+            sign = 0 <= minutes
+
+            (_HH, _MM) = abs minutes `divMod` 60
 
         Note _ b ->
             go b

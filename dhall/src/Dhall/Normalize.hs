@@ -480,6 +480,12 @@ normalizeWithM ctx e0 = loop (Syntax.denote e0)
     TextAppend x y -> loop (TextLit (Chunks [("", x), ("", y)] ""))
     TextReplace -> pure TextReplace
     TextShow -> pure TextShow
+    Date -> pure Date
+    DateLiteral d -> pure (DateLiteral d)
+    Time -> pure Time
+    TimeLiteral t p -> pure (TimeLiteral t p)
+    TimeZone -> pure TimeZone
+    TimeZoneLiteral z -> pure (TimeZoneLiteral z)
     List -> pure List
     ListLit t es
         | Data.Sequence.null es -> ListLit <$> t' <*> pure Data.Sequence.empty
@@ -840,6 +846,12 @@ isNormalized e0 = loop (Syntax.denote e0)
       TextAppend _ _ -> False
       TextReplace -> True
       TextShow -> True
+      Date -> True
+      DateLiteral _ -> True
+      Time -> True
+      TimeLiteral _ _ -> True
+      TimeZone -> True
+      TimeZoneLiteral _ -> True
       List -> True
       ListLit t es -> all loop t && all loop es
       ListAppend x y -> loop x && loop y && decide x y

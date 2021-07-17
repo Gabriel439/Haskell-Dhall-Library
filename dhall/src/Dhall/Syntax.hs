@@ -13,6 +13,8 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE UnicodeSyntax              #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 {-| This module contains the core syntax types and optics for them.
 
 'reservedIdentifiers', 'denote' and friends are included because they are
@@ -110,14 +112,21 @@ import Numeric.Natural            (Natural)
 import Unsafe.Coerce              (unsafeCoerce)
 
 import qualified Control.Monad
+import qualified Data.Fixed                as Fixed
 import qualified Data.HashSet
 import qualified Data.List.NonEmpty        as NonEmpty
 import qualified Data.Text
 import qualified Data.Text.Prettyprint.Doc as Pretty
+import qualified Data.Time                 as Time
 import qualified Dhall.Crypto
 import qualified Dhall.Optics              as Optics
 import qualified Lens.Family               as Lens
 import qualified Network.URI               as URI
+
+deriving instance Lift Time.Day
+deriving instance Lift Time.TimeOfDay
+deriving instance Lift Time.TimeZone
+deriving instance Lift (Fixed.Fixed a)
 
 -- $setup
 -- >>> import Dhall.Binary () -- For the orphan instance for `Serialise (Expr Void Import)`
@@ -532,6 +541,22 @@ data Expr s a
     | TextReplace
     -- | > TextShow                                 ~  Text/show
     | TextShow
+    -- | > Date                                     ~  Date
+    | Date
+    -- | > DateLiteral (fromGregorian _YYYY _MM _DD) ~ YYYY-MM-DD
+    | DateLiteral Time.Day
+    -- | > Time                                     ~  Time
+    | Time
+    -- | > TimeLiteral (TimeOfDay hh mm ss) _       ~  hh:mm:ss
+    | TimeLiteral
+        Time.TimeOfDay
+        Word
+        -- ^ Precision
+    -- | > TimeZone                                 ~  TimeZone
+    | TimeZone
+    -- | > TimeZoneLiteral (TimeZone ( 60 * _HH + _MM) _ _) ~ +HH:MM
+    -- | > TimeZoneLiteral (TimeZone (-60 * _HH + _MM) _ _) ~ -HH:MM
+    | TimeZoneLiteral Time.TimeZone
     -- | > List                                     ~  List
     | List
     -- | > ListLit (Just t ) []                     ~  [] : t
@@ -815,6 +840,12 @@ unsafeSubExpressions f (TextLit chunks) =
 unsafeSubExpressions f (TextAppend a b) = TextAppend <$> f a <*> f b
 unsafeSubExpressions _ TextReplace = pure TextReplace
 unsafeSubExpressions _ TextShow = pure TextShow
+unsafeSubExpressions _ Date = pure Date
+unsafeSubExpressions _ (DateLiteral a) = pure (DateLiteral a)
+unsafeSubExpressions _ Time = pure Time
+unsafeSubExpressions _ (TimeLiteral a b) = pure (TimeLiteral a b)
+unsafeSubExpressions _ TimeZone = pure TimeZone
+unsafeSubExpressions _ (TimeZoneLiteral a) = pure (TimeZoneLiteral a)
 unsafeSubExpressions _ List = pure List
 unsafeSubExpressions f (ListLit a b) = ListLit <$> traverse f a <*> traverse f b
 unsafeSubExpressions f (ListAppend a b) = ListAppend <$> f a <*> f b
@@ -1176,8 +1207,7 @@ shallowDenote         e  = e
 reservedKeywords :: HashSet Text
 reservedKeywords =
     Data.HashSet.fromList
-        [
-          "if"
+        [ "if"
         , "then"
         , "else"
         , "let"
@@ -1235,6 +1265,9 @@ reservedIdentifiers = reservedKeywords <>
         , "Integer"
         , "Double"
         , "Text"
+        , "Date"
+        , "Time"
+        , "TimeZone"
         , "List"
         , "Type"
         , "Kind"

@@ -27,6 +27,7 @@ import qualified Data.List.NonEmpty                 as NonEmpty
 import qualified Data.Sequence
 import qualified Data.Text
 import qualified Data.Text.Encoding
+import qualified Data.Time                          as Time
 import qualified Dhall.Crypto
 import qualified Text.Megaparsec
 
@@ -107,6 +108,132 @@ data Parsers a = Parsers
     { completeExpression_ :: Parser (Expr Src a)
     , importExpression_   :: Parser (Expr Src a)
     }
+
+{-| Parse a numeric `TimeZone`
+
+    This corresponds to the @time-numoffset@ rule from the official grammar
+-}
+timeNumOffset :: Parser (Expr s a)
+timeNumOffset = do
+    s <- signPrefix
+
+    hour <- timeHour
+
+    _ <- text ":"
+
+    minute <- timeMinute
+
+    let minutes = s (hour * 60 + minute)
+
+    return (TimeZoneLiteral (Time.TimeZone minutes Prelude.False ""))
+
+{-| Parse a numeric `TimeZone` or a @Z@
+
+    This corresponds to the @time-offset@ rule from the official grammar
+-}
+timeOffset :: Parser (Expr s a)
+timeOffset =
+        (do _ <- text "Z"
+
+            return (TimeZoneLiteral (Time.TimeZone 0 Prelude.False ""))
+        )
+    <|> timeNumOffset
+
+{-| Parse a `Time`
+
+    This corresponds to the @partial-time@ rule from the official grammar
+-}
+partialTime :: Parser (Expr s a)
+partialTime = do
+    hour <- timeHour
+
+    _ <- text ":"
+
+    minute <- timeMinute
+
+    _ <- text ":"
+
+    second <- timeSecond
+
+    (fraction, precision) <- timeSecFrac <|> pure (0, 0)
+
+    let time = Time.TimeOfDay hour minute (second + fraction)
+
+    return (TimeLiteral time precision)
+
+{-| Parse a `Date`
+
+    This corresponds to the @full-date@ rule from the official grammar
+-}
+fullDate :: Parser (Expr s a)
+fullDate = do
+    year <- dateFullYear
+
+    _ <- text "-"
+
+    month <- dateMonth
+
+    _ <- text "-"
+
+    day <- dateMday
+
+    case Time.fromGregorianValid year month day of
+        Nothing -> fail "Invalid calendar day"
+        Just d  -> return (DateLiteral d)
+
+{-| Parse a `Date`, `Time`, `TimeZone` or any valid permutation of them as a
+    record
+
+    This corresponds to the @temporal-literal@ rule from the official grammar
+-}
+temporalLiteral :: Parser (Expr s a)
+temporalLiteral =
+        try (do
+            date <- fullDate
+
+            _ <- text "T" <|> text "t"
+
+            time <- partialTime
+
+            timeZone <- timeOffset
+
+            return
+                (RecordLit
+                    [   ("date"    , makeRecordField date)
+                    ,   ("time"    , makeRecordField time)
+                    ,   ("timeZone", makeRecordField timeZone)
+                    ]
+                )
+        )
+    <|> try (do
+            date <- fullDate
+
+            _ <- text "T" <|> text "t"
+
+            time <- partialTime
+
+            return
+                (RecordLit
+                    [   ("date", makeRecordField date)
+                    ,   ("time", makeRecordField time)
+                    ]
+                )
+        )
+    <|> try (do
+            time <- partialTime
+
+            timeZone <- timeOffset
+
+            return
+                (RecordLit
+                    [   ("time"    , makeRecordField time)
+                    ,   ("timeZone", makeRecordField timeZone)
+                    ]
+                )
+        )
+    <|> try fullDate
+    <|> try partialTime
+    <|> try timeNumOffset
 
 -- | Given a parser for imports,
 parsers :: forall a. Parser a -> Parsers a
@@ -481,7 +608,8 @@ parsers embedded = Parsers {..}
     primitiveExpression =
             noted
                 ( choice
-                    [ alternative00
+                    [ temporalLiteral
+                    , alternative00
                     , alternative01
                     , alternative02
                     , textLiteral
@@ -577,7 +705,8 @@ parsers embedded = Parsers {..}
 
                     'D' ->
                         choice
-                            [ DoubleShow       <$ _DoubleShow
+                            [ Date             <$ _Date
+                            , DoubleShow       <$ _DoubleShow
                             , Double           <$ _Double
                             ]
                     'L' ->
@@ -599,6 +728,8 @@ parsers embedded = Parsers {..}
                             [ TextReplace      <$ _TextReplace
                             , TextShow         <$ _TextShow
                             , Text             <$ _Text
+                            , TimeZone         <$ _TimeZone
+                            , Time             <$ _Time
                             , BoolLit True     <$ _True
                             , Const Type       <$ _Type
                             ]

@@ -24,10 +24,18 @@ module Dhall.Parser.Token (
     hexdig,
     identifier,
     hexNumber,
+    signPrefix,
     doubleLiteral,
     doubleInfinity,
     naturalLiteral,
     integerLiteral,
+    dateFullYear,
+    dateMonth,
+    dateMday,
+    timeHour,
+    timeMinute,
+    timeSecond,
+    timeSecFrac,
     _Optional,
     _if,
     _then,
@@ -68,6 +76,9 @@ module Dhall.Parser.Token (
     _Text,
     _TextReplace,
     _TextShow,
+    _Date,
+    _Time,
+    _TimeZone,
     _List,
     _True,
     _False,
@@ -115,12 +126,14 @@ import Dhall.Parser.Combinators
 
 import Control.Applicative     (Alternative (..), optional)
 import Data.Bits               ((.&.))
+import Data.Fixed              (Pico)
 import Data.Functor            (void, ($>))
+import Data.Ratio              ((%))
 import Data.Text               (Text)
 import Dhall.Syntax
 import Text.Parser.Combinators (choice, try, (<?>))
 
-import qualified Control.Monad
+import qualified Control.Monad              as Monad
 import qualified Data.Char                  as Char
 import qualified Data.Foldable
 import qualified Data.HashSet
@@ -185,6 +198,7 @@ hexdig c =
     ||  ('A' <= c && c <= 'F')
     ||  ('a' <= c && c <= 'f')
 
+-- | Parse a leading @+@ or @-@ sign
 signPrefix :: Num a => Parser (a -> a)
 signPrefix = (do
     let positive = fmap (\_ -> id    ) (char '+')
@@ -303,6 +317,99 @@ naturalLiteral = (do
           where
             step acc x = acc * 10 + x
 
+{-| Parse a 4-digit year
+
+    This corresponds to the @date-fullyear@ rule from the official grammar
+-}
+dateFullYear :: Parser Integer
+dateFullYear = do
+    digits <- Monad.replicateM 4 (Text.Parser.Char.satisfy digit)
+
+    return (digits `base` 10)
+
+{-| Parse a 2-digit month
+
+    This corresponds to the @date-month@ rule from the official grammar
+-}
+dateMonth :: Parser Int
+dateMonth = do
+    digits <- Monad.replicateM 2 (Text.Parser.Char.satisfy digit)
+
+    let month = digits `base` 10
+
+    if 1 <= month && month <= 12
+        then return month
+        else fail "Invalid month"
+
+{-| Parse a 2-digit day of the month
+
+    This corresponds to the @date-mday@ rule from the official grammar
+-}
+dateMday :: Parser Int
+dateMday = do
+    digits <- Monad.replicateM 2 (Text.Parser.Char.satisfy digit)
+
+    let day = digits `base` 10
+
+    if 1 <= day && day <= 31
+        then return day
+        else fail "Invalid day"
+
+{-| Parse a 2-digit hour
+
+    This corresponds to the @time-hour@ rule from the official grammar
+-}
+timeHour :: Parser Int
+timeHour = do
+    digits <- Monad.replicateM 2 (Text.Parser.Char.satisfy digit)
+
+    let hour = digits `base` 10
+
+    if 0 <= hour && hour < 24
+        then return hour
+        else fail "Invalid hour"
+
+{-| Parse a 2-digit minute
+
+    This corresponds to the @time-minute@ rule from the official grammar
+-}
+timeMinute :: Parser Int
+timeMinute = do
+    digits <- Monad.replicateM 2 (Text.Parser.Char.satisfy digit)
+
+    let minute = digits `base` 10
+
+    if 0 <= minute && minute < 60
+        then return minute
+        else fail "Invalid minute"
+
+{-| Parse a 2-digit second
+
+    This corresponds to the @time-second@ rule from the official grammar
+-}
+timeSecond :: Parser Pico
+timeSecond = do
+    digits <- Monad.replicateM 2 (Text.Parser.Char.satisfy digit)
+
+    let second = digits `base` 10
+
+    if 0 <= second && second < 60
+        then return second
+        else fail "Invalid second"
+
+{-| Parse the fractional component of a second
+
+    This corresponds to the @time-secfrac@ rule from the official grammar
+-}
+timeSecFrac :: Parser (Pico, Word)
+timeSecFrac = do
+    _ <- Text.Parser.Char.text "."
+
+    digits <- some (Text.Parser.Char.satisfy digit)
+
+    let precision = fromIntegral (length digits)
+
+    return (fromRational ((digits `base` 10) % (10 ^ precision)), precision)
 
 {-| Parse an identifier (i.e. a variable or built-in)
 
@@ -415,7 +522,7 @@ simpleLabel allowReserved = try $ do
     let t = Data.Text.cons c rest
     let isNotAKeyword = not $ t `Data.HashSet.member` reservedKeywords
     let isNotAReservedIdentifier = not $ t `Data.HashSet.member` reservedIdentifiers
-    Control.Monad.guard (isNotAKeyword && (allowReserved || isNotAReservedIdentifier))
+    Monad.guard (isNotAKeyword && (allowReserved || isNotAReservedIdentifier))
     return t
 
 headCharacter :: Char -> Bool
@@ -1061,6 +1168,27 @@ _TextReplace = builtin "Text/replace"
 -}
 _TextShow :: Parser ()
 _TextShow = builtin "Text/show"
+
+{-| Parse the @Date@ bult-in
+
+    This corresponds to the @Date@ rule from the official grammar
+-}
+_Date :: Parser ()
+_Date = builtin "Date"
+
+{-| Parse the @Time@ bult-in
+
+    This corresponds to the @Time@ rule from the official grammar
+-}
+_Time :: Parser ()
+_Time = builtin "Time"
+
+{-| Parse the @TimeZone@ bult-in
+
+    This corresponds to the @TimeZone@ rule from the official grammar
+-}
+_TimeZone :: Parser ()
+_TimeZone = builtin "TimeZone"
 
 {-| Parse the @List@ built-in
 

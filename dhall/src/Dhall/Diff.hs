@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE TypeApplications  #-}
 
 {-| This module provides functionality for concisely displaying the difference
     between two expressions
@@ -43,6 +44,7 @@ import qualified Data.List.NonEmpty
 import qualified Data.Set
 import qualified Data.Text
 import qualified Data.Text.Prettyprint.Doc as Pretty
+import qualified Data.Time                 as Time
 import qualified Dhall.Map
 import qualified Dhall.Normalize           as Normalize
 import qualified Dhall.Pretty.Internal     as Internal
@@ -193,6 +195,22 @@ diffNatural = diffPrimitive (token . Internal.prettyNatural)
 
 diffDouble :: DhallDouble -> DhallDouble -> Diff
 diffDouble = diffPrimitive (token . Internal.prettyDouble . getDhallDouble)
+
+diffDateLiteral :: Time.Day -> Time.Day -> Diff
+diffDateLiteral =
+    diffPrimitive (token . Internal.prettyExpr @(Expr Void Void) . DateLiteral)
+
+diffTimeLiteral :: Time.TimeOfDay -> Word -> Time.TimeOfDay -> Word -> Diff
+diffTimeLiteral tL pL tR pR =
+    diffPrimitive
+        (token . Internal.prettyExpr @(Expr Void Void) . uncurry TimeLiteral)
+        (tL, pL)
+        (tR, pR)
+
+diffTimeZoneLiteral :: Time.TimeZone -> Time.TimeZone -> Diff
+diffTimeZoneLiteral =
+    diffPrimitive
+        (token . Internal.prettyExpr @(Expr Void Void) . TimeZoneLiteral)
 
 diffConst :: Const -> Const -> Diff
 diffConst = diffPrimitive (token . Internal.prettyConst)
@@ -1248,6 +1266,24 @@ diffPrimitiveExpression l@TextShow r =
     mismatch l r
 diffPrimitiveExpression l r@TextShow =
     mismatch l r
+diffPrimitiveExpression Date Date =
+    "…"
+diffPrimitiveExpression l r@Date =
+    mismatch l r
+diffPrimitiveExpression l@Date r=
+    mismatch l r
+diffPrimitiveExpression Time Time =
+    "…"
+diffPrimitiveExpression l r@Time =
+    mismatch l r
+diffPrimitiveExpression l@Time r=
+    mismatch l r
+diffPrimitiveExpression TimeZone TimeZone =
+    "…"
+diffPrimitiveExpression l r@TimeZone =
+    mismatch l r
+diffPrimitiveExpression l@TimeZone r=
+    mismatch l r
 diffPrimitiveExpression List List =
     "…"
 diffPrimitiveExpression l@List r =
@@ -1340,6 +1376,24 @@ diffPrimitiveExpression (TextLit l) (TextLit r) =
 diffPrimitiveExpression l@(TextLit {}) r =
     mismatch l r
 diffPrimitiveExpression l r@(TextLit {}) =
+    mismatch l r
+diffPrimitiveExpression (DateLiteral l) (DateLiteral r) =
+    diffDateLiteral l r
+diffPrimitiveExpression l@(DateLiteral {}) r =
+    mismatch l r
+diffPrimitiveExpression l r@(DateLiteral {}) =
+    mismatch l r
+diffPrimitiveExpression (TimeLiteral tL pL) (TimeLiteral tR pR) =
+    diffTimeLiteral tL pL tR pR
+diffPrimitiveExpression l@(TimeLiteral {}) r =
+    mismatch l r
+diffPrimitiveExpression l r@(TimeLiteral {}) =
+    mismatch l r
+diffPrimitiveExpression (TimeZoneLiteral l) (TimeZoneLiteral r) =
+    diffTimeZoneLiteral l r
+diffPrimitiveExpression l@(TimeZoneLiteral {}) r =
+    mismatch l r
+diffPrimitiveExpression l r@(TimeZoneLiteral {}) =
     mismatch l r
 diffPrimitiveExpression (Record aL) (Record aR) =
     diffRecord aL aR

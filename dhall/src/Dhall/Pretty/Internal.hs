@@ -88,7 +88,7 @@ import Numeric.Natural            (Natural)
 
 import qualified Data.Char
 import qualified Data.HashSet
-import qualified Data.List
+import qualified Data.List                                 as List
 import qualified Data.List.NonEmpty                        as NonEmpty
 import qualified Data.Maybe
 import qualified Data.Text                                 as Text
@@ -96,7 +96,9 @@ import qualified Data.Text.Prettyprint.Doc                 as Pretty
 import qualified Data.Text.Prettyprint.Doc.Render.String   as Pretty
 import qualified Data.Text.Prettyprint.Doc.Render.Terminal as Terminal
 import qualified Data.Text.Prettyprint.Doc.Render.Text     as Pretty
+import qualified Data.Time                                 as Time
 import qualified Dhall.Map                                 as Map
+import qualified Text.Printf                               as Printf
 
 {-| Annotation type used to tag elements in a pretty-printed document for
     syntax highlighting purposes
@@ -389,7 +391,7 @@ unsnoc (x0 : xs0) = Just (go id x0 xs0)
 arrows :: CharacterSet -> [ Doc Ann ] -> Doc Ann
 arrows characterSet docs = Pretty.group (Pretty.flatAlt long short)
   where
-    long = Pretty.align (mconcat (Data.List.intersperse Pretty.hardline docs'))
+    long = Pretty.align (mconcat (List.intersperse Pretty.hardline docs'))
       where
         docs' = case unsnoc docs of
             Nothing -> docs
@@ -402,7 +404,7 @@ arrows characterSet docs = Pretty.group (Pretty.flatAlt long short)
 
                  last' = space <> space <> last_
 
-    short = mconcat (Data.List.intersperse separator docs)
+    short = mconcat (List.intersperse separator docs)
       where
         separator = space <> rarrow characterSet <> space
 
@@ -481,7 +483,7 @@ enclose' beginShort beginLong sepShort sepLong docs =
     longLines = zipWith (<>) (beginLong : repeat sepLong) docsLong
 
     long =
-        Pretty.align (mconcat (Data.List.intersperse Pretty.hardline longLines))
+        Pretty.align (mconcat (List.intersperse Pretty.hardline longLines))
 
     short = mconcat (zipWith (<>) (beginShort : repeat sepShort) docsShort)
 
@@ -693,7 +695,7 @@ prettyPrinters characterSet =
         longLines = zipWith (<>) prefixesLong (docsLong True a0)
 
         long =
-            Pretty.align (mconcat (Data.List.intersperse Pretty.hardline longLines))
+            Pretty.align (mconcat (List.intersperse Pretty.hardline longLines))
 
         short = mconcat (zipWith (<>) prefixesShort (docsShort a0))
 
@@ -1306,6 +1308,51 @@ prettyPrinters characterSet =
         builtin "Text/replace"
     prettyPrimitiveExpression TextShow =
         builtin "Text/show"
+    prettyPrimitiveExpression Date =
+        builtin "Date"
+    prettyPrimitiveExpression (DateLiteral day) =
+        literal
+            (   Pretty.pretty (Printf.printf "%04d" _HHHH :: String)
+            <>  "-"
+            <>  Pretty.pretty (Printf.printf "%02d" _MM :: String)
+            <>  "-"
+            <>  Pretty.pretty (Printf.printf "%02d" _DD :: String)
+            )
+      where
+        (_HHHH, _MM, _DD) = Time.toGregorian day
+    prettyPrimitiveExpression Time =
+        builtin "Time"
+    prettyPrimitiveExpression (TimeLiteral (Time.TimeOfDay hh mm seconds) precision) =
+        literal
+            (   Pretty.pretty (Printf.printf "%02d" hh :: String)
+            <>  ":"
+            <>  Pretty.pretty (Printf.printf "%02d" mm :: String)
+            <>  ":"
+            <>  Pretty.pretty (Printf.printf "%02d" ss :: String)
+            <>  suffix
+            )
+      where
+        magnitude :: Integer
+        magnitude = 10 ^ precision
+
+        (ss, fraction) = truncate (seconds * fromInteger magnitude) `divMod` magnitude
+
+        suffix
+            | precision == 0 = ""
+            | otherwise      = "." <> Pretty.pretty fraction
+    prettyPrimitiveExpression TimeZone =
+        builtin "TimeZone"
+    prettyPrimitiveExpression (TimeZoneLiteral (Time.TimeZone minutes _ _)) =
+        literal
+            (   sign
+            <>  Pretty.pretty (Printf.printf "%02d" _HH :: String)
+            <>  ":"
+            <>  Pretty.pretty (Printf.printf "%02d" _MM :: String)
+            )
+      where
+        sign = if 0 <= minutes then "+" else "-"
+
+        (_HH, _MM) = minutes `divMod` 60
     prettyPrimitiveExpression List =
         builtin "List"
     prettyPrimitiveExpression ListBuild =
@@ -1466,14 +1513,43 @@ prettyPrinters characterSet =
 
     prettyRecord :: Pretty a => Map Text (RecordField Src a) -> Doc Ann
     prettyRecord =
-          braces
+        ( braces
         . map (prettyKeyValue prettyExpression colon . adapt)
         . Map.toList
+        )
       where
         adapt (key, RecordField mSrc0 val mSrc1 mSrc2) = KeyValue (pure (mSrc0, key, mSrc1)) mSrc2 val
 
     prettyRecordLit :: Pretty a => Map Text (RecordField Src a) -> Doc Ann
-    prettyRecordLit = prettyRecordLike braces
+    prettyRecordLit m
+        | [ ("date"    , field -> d@DateLiteral{})
+          , ("time"    , field -> t@TimeLiteral{})
+          , ("timeZone", field -> z@TimeZoneLiteral{})
+          ] <- List.sortOn fst (Map.toList m) =
+              literal
+                  (   prettyPrimitiveExpression d
+                  <>  "T"
+                  <>  prettyPrimitiveExpression t
+                  <>  prettyPrimitiveExpression z
+                  )
+        | [ ("date"    , field -> d@DateLiteral{})
+          , ("time"    , field -> t@TimeLiteral{})
+          ] <- List.sortOn fst (Map.toList m) =
+              literal
+                  (   prettyPrimitiveExpression d
+                  <>  "T"
+                  <>  prettyPrimitiveExpression t
+                  )
+        | [ ("time"    , field -> t@TimeLiteral{})
+          , ("timeZone", field -> z@TimeZoneLiteral{})
+          ] <- List.sortOn fst (Map.toList m) =
+              literal
+                  (   prettyPrimitiveExpression t
+                  <>  prettyPrimitiveExpression z
+                  )
+      where
+        field = Dhall.Syntax.shallowDenote . recordFieldValue
+    prettyRecordLit m = prettyRecordLike braces m
 
     prettyCompletionLit :: Pretty a => Int -> Map Text (RecordField Src a) -> Doc Ann
     prettyCompletionLit = prettyRecordLike . hangingBraces
@@ -1549,8 +1625,7 @@ prettyPrinters characterSet =
                 (if Text.null line then id else literal)
                     (Pretty.pretty line)
 
-            docs =
-                Data.List.intersperse Pretty.hardline (map prettyLine lines_)
+            docs = List.intersperse Pretty.hardline (map prettyLine lines_)
 
         prettyChunk (c, d) =
                 prettyText c
