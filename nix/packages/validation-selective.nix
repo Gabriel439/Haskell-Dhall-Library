@@ -1,5 +1,5 @@
 { mkDerivation, base, deepseq, doctest, hedgehog, hspec
-, hspec-hedgehog, selective, stdenv, text
+, hspec-hedgehog, lib, selective, text
 }:
 mkDerivation {
   pname = "validation-selective";
@@ -11,5 +11,5 @@ mkDerivation {
   ];
   homepage = "https://github.com/kowainik/validation-selective";
   description = "Lighweight pure data validation based on Applicative and Selective functors";
-  license = stdenv.lib.licenses.mpl20;
+  license = lib.licenses.mpl20;
 }

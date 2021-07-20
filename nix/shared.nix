@@ -1,7 +1,7 @@
 let
   pinned = import ./pinnedNixpkgs.nix;
-
-  defaultCompiler = "ghc865";
+  
+  defaultCompiler = "ghc8104";
 
 in
 
@@ -277,23 +277,6 @@ let
                             '';
                           }
                         );
-
-                    generic-random = haskellPackagesOld.generic-random_1_3_0_0;
-
-                    haskeline = haskellPackagesNew.haskeline_0_8_0_0;
-
-                    haskell-lsp = haskellPackagesNew.haskell-lsp_0_19_0_0;
-
-                    haskell-lsp-types =
-                      haskellPackagesNew.haskell-lsp-types_0_19_0_0;
-
-                    HsYAML = haskellPackagesNew.HsYAML_0_2_1_0;
-
-                    path = haskellPackagesNew.path_0_7_0;
-
-                    path-io = haskellPackagesNew.path-io_1_6_0;
-
-                    semialign = haskellPackagesNew.semialign_1_1;
                   };
 
               in
