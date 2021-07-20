@@ -1388,9 +1388,11 @@ prettyPrinters characterSet =
                     Just doc -> doc <> Pretty.hardline
             <>  prettyValue val
 
-        long =  Pretty.align
-                    (   prettyAnyLabels key
-                    <>  preSeparator
+        long =  Pretty.group
+                    ( Pretty.align
+                        (   prettyAnyLabels key
+                        <>  preSeparator
+                        )
                     )
             <>  separator
             <>  case renderSrcMaybe mSrc of
@@ -1456,13 +1458,21 @@ prettyPrinters characterSet =
                                     <>  prettyValue val
                                     )
           where
-            (preSeparator, preComment) =
-                case key of
-                    (_, _, mSrc2) :| [] | not (containsComment mSrc2) ->
-                        (" ", Pretty.hardline <> "    ")
-                    _ ->
-                        (Pretty.hardline, " ")
-
+            preSeparator
+                | (_, _, mSrc2) :| [] <- key
+                , not (containsComment mSrc2) =
+                    " "
+                | otherwise =
+                    Pretty.flatAlt Pretty.hardline " "
+            (_, preComment)
+                | (_, _, mSrc2) :| ks <- key
+                , not (containsComment mSrc2)
+                , not (any hasComment ks) =
+                    (" ", Pretty.hardline <> "    ")
+                | otherwise =
+                    (Pretty.hardline, " ")
+              where
+                hasComment (mSrc1, _, mSrc2) = containsComment mSrc1 || containsComment mSrc2
 
     prettyRecord :: Pretty a => Map Text (RecordField Src a) -> Doc Ann
     prettyRecord =
