@@ -7,6 +7,7 @@ import Control.Applicative.Combinators (option, sepBy1)
 import Data.Aeson                      (decodeFileStrict, eitherDecodeFileStrict)
 import Data.Bifunctor                  (bimap)
 import Data.Foldable                   (for_)
+import Data.Maybe                      (isJust)
 import Data.Text                       (Text, pack, unpack)
 import Data.Void                       (Void)
 import Dhall.Core                      (Expr (..))
@@ -26,6 +27,7 @@ import Text.Megaparsec.Char            (alphaNumChar, char)
 import Dhall.Kubernetes.Data           (patchCyclicImports)
 import Dhall.Kubernetes.Types
     ( DuplicateHandler
+    , AliasConverter
     , ModelName (..)
     , ModelHierarchy
     , Prefix
@@ -56,12 +58,15 @@ import qualified Text.Megaparsec.Char.Lexer            as Megaparsec.Lexer
 
 -- | Top-level program options
 data Options = Options
-    { skipDuplicates :: Bool
+    { duplicates :: Duplicates
     , prefixMap :: Data.Map.Map Prefix Dhall.Import
     , splits :: Data.Map.Map ModelHierarchy (Maybe ModelName)
     , filename :: String
     , crd :: Bool
     }
+
+data Duplicates = Skip | PreferHeuristic | Full | FullNested
+  deriving (Eq, Show, Read, Bounded, Enum)
 
 -- | Write and format a Dhall expression to a file
 writeDhall :: FilePath -> Types.Expr -> IO ()
@@ -157,7 +162,7 @@ isK8sNative :: ModelName -> Bool
 isK8sNative ModelName{..} = Text.isPrefixOf "io.k8s." unModelName
 
 preferStableResource :: DuplicateHandler
-preferStableResource (_, names) = do
+preferStableResource (names) = do
     let issue112 = Ord.comparing getAutoscaling
     let k8sOverCrd = Ord.comparing isK8sNative
     let defaultComparison = Ord.comparing getVersion
@@ -166,6 +171,32 @@ preferStableResource (_, names) = do
 
 skipDuplicatesHandler :: DuplicateHandler
 skipDuplicatesHandler = const Nothing
+
+errorDuplicatesHandler :: DuplicateHandler
+errorDuplicatesHandler models = error $ "Found conflicting model names: " ++ (List.intercalate ", " $ fmap show models)
+
+getDuplicatesHandler :: Duplicates -> DuplicateHandler
+getDuplicatesHandler Skip = skipDuplicatesHandler
+getDuplicatesHandler PreferHeuristic = preferStableResource
+getDuplicatesHandler _ = errorDuplicatesHandler
+
+getAliasConverter :: Duplicates -> AliasConverter
+getAliasConverter Full = toFullModelName
+getAliasConverter FullNested = toFullModelName
+getAliasConverter _ = toSimpleModelName
+
+toSimpleModelName :: AliasConverter
+toSimpleModelName (ModelName name) =
+  let elems = Text.split (== '.') name
+  in elems List.!! (length elems - 1)
+
+toFullModelName :: AliasConverter
+toFullModelName m
+  | useShortName = toSimpleModelName m
+  | otherwise = unModelName m
+  where
+    nonPrefixed = [ModelName "io.k8s.apimachinery.pkg.util.intstr.IntOrString"] :: [ModelName]
+    useShortName = m `elem` nonPrefixed
 
 parseImport :: String -> Types.Expr -> Dhall.Parser.Parser Dhall.Import
 parseImport _ (Dhall.Note _ (Dhall.Embed l)) = pure l
@@ -201,13 +232,28 @@ parseSplits =
     result = parse ((Dhall.Parser.unParser parser `sepBy1` char ',') <* eof) "MAPPING"
 
 
+parseDuplicates :: Options.Applicative.ReadM Duplicates
+parseDuplicates = Options.Applicative.str >>= toDuplicates
+  where
+    toDuplicates :: String -> Options.Applicative.ReadM Duplicates
+    toDuplicates "skip" = return Skip
+    toDuplicates "prefer" = return PreferHeuristic
+    toDuplicates "full" = return Full
+    toDuplicates "nested" = return FullNested
+    toDuplicates _ = Options.Applicative.readerError "Accepted duplicates options are 'skip', 'prefer', 'full' and 'nested'"
+
 parseOptions :: Options.Applicative.Parser Options
 parseOptions = Options <$> parseSkip <*> parsePrefixMap' <*> parseSplits' <*> fileArg <*> crdArg
   where
     parseSkip =
-      Options.Applicative.switch
-        (  Options.Applicative.long "skipDuplicates"
-        <> Options.Applicative.help "Skip types with the same name when aggregating types"
+      option PreferHeuristic $ Options.Applicative.option parseDuplicates
+        (  Options.Applicative.long "duplicates"
+        <> Options.Applicative.help
+           "Specify how to handle duplicates of a given model name with multiple versions and groups. \
+           \prefer: (Default) Prefer types according to a heuristic i.e. stable over beta/alpha, native over CRDs. \
+           \skip: Skip types with the same name when aggregating types. \
+           \full: Use fully qualified names to disambiguate between model names with multiple versions and groups. \
+           \nested: Similar to full but instead nests by any occurances of the '.' character."
         )
     parsePrefixMap' =
       option Data.Map.empty $ Options.Applicative.option parsePrefixMap
@@ -250,11 +296,6 @@ main = do
   GHC.IO.Encoding.setLocaleEncoding System.IO.utf8
 
   Options{..} <- Options.Applicative.execParser parserInfoOptions
-
-  let duplicateHandler =
-        if skipDuplicates
-        then skipDuplicatesHandler
-        else preferStableResource
 
   -- Get the Definitions
   defs <-
@@ -299,12 +340,13 @@ main = do
     let path = "./defaults" </> unpack name <> ".dhall"
     writeDhall path expr
 
-  let mkEmbedField = Dhall.makeRecordField . Dhall.Embed
+  let mkImport folders file = Dhall.Embed $ Convert.mkImport prefixMap folders file
+  let mkImportWithModel folders (ModelName key) = mkImport folders (key <> ".dhall")
 
-  let toSchema (ModelName key) _ _ =
+  let toSchema model _ _ =
         Dhall.RecordLit
-          [ ("Type", mkEmbedField (Convert.mkImport prefixMap ["types", ".."] (key <> ".dhall")))
-          , ("default", mkEmbedField (Convert.mkImport prefixMap ["defaults", ".."] (key <> ".dhall")))
+          [ ("Type", Dhall.makeRecordField $ mkImportWithModel ["types", ".."] model)
+          , ("default", Dhall.makeRecordField $ mkImportWithModel ["defaults", ".."] model)
           ]
 
   let schemas = Data.Map.intersectionWithKey toSchema types defaults
@@ -313,12 +355,12 @@ main = do
         Combine
           mempty
           Nothing
-          (Embed (Convert.mkImport prefixMap [ ] "schemas.dhall"))
+          (mkImport [ ] "schemas.dhall")
           (RecordLit
               [ ( "IntOrString"
-                , Dhall.makeRecordField $ Field (Embed (Convert.mkImport prefixMap [ ] "types.dhall")) $ Dhall.makeFieldSelection "IntOrString"
+                , Dhall.makeRecordField $ Field (mkImport [ ] "types.dhall") $ Dhall.makeFieldSelection "IntOrString"
                 )
-              , ( "Resource", mkEmbedField (Convert.mkImport prefixMap [ ] "typesUnion.dhall"))
+              , ( "Resource", Dhall.makeRecordField $ mkImport [ ] "typesUnion.dhall")
               ]
           )
 
@@ -328,22 +370,59 @@ main = do
     let path = "./schemas" </> unpack name <> ".dhall"
     writeDhall path expr
 
-  -- Output the types record, the defaults record, and the giant union type
-  let getImportsMap = Convert.getImportsMap prefixMap duplicateHandler objectNames
-      makeRecordMap = Dhall.Map.mapMaybe (Just . Dhall.makeRecordField)
-      objectNames = Data.Map.keys types
-      typesMap = getImportsMap "types" $ Data.Map.keys types
-      defaultsMap = getImportsMap "defaults" $ Data.Map.keys defaults
-      schemasMap = getImportsMap "schemas" $ Data.Map.keys schemas
+  let duplicateHandler = getDuplicatesHandler duplicates
+      aliasConverter = getAliasConverter duplicates
+      isStandalone model = and $ (\ def -> isJust $ Types.baseData def) <$> Data.Map.lookup model defs
 
-      typesRecordPath = "./types.dhall"
+  let typesRecordPath = "./types.dhall"
       typesUnionPath = "./typesUnion.dhall"
       defaultsRecordPath = "./defaults.dhall"
       schemasRecordPath = "./schemas.dhall"
       packageRecordPath = "./package.dhall"
 
-  writeDhall typesUnionPath (Dhall.Union $ fmap Just typesMap)
-  writeDhall typesRecordPath (Dhall.RecordLit $ makeRecordMap typesMap)
-  writeDhall defaultsRecordPath (Dhall.RecordLit $ makeRecordMap defaultsMap)
-  writeDhall schemasRecordPath (Dhall.RecordLit $ makeRecordMap schemasMap)
-  writeDhall packageRecordPath package
+  if duplicates == FullNested
+  then do
+    let
+        makeRecord = Convert.groupByOnParts duplicateHandler aliasConverter
+        typesRecord = makeRecord
+                    $ Data.Map.mapWithKey (\k _ -> mkImportWithModel ["types"] k) types
+        defaultsRecord = makeRecord
+                       $ Data.Map.mapWithKey (\k _ -> mkImportWithModel ["defaults"] k)
+                       $ Data.Map.restrictKeys types (Data.Map.keysSet defaults)
+        schemasRecord = makeRecord
+                      $ Data.Map.mapWithKey (\k _ -> mkImportWithModel ["schemas"] k)
+                      $ Data.Map.restrictKeys types (Data.Map.keysSet schemas)
+        typesUnionMap = Dhall.Map.fromList
+                      $ List.sortOn snd
+                      $ Data.Map.toList
+                      $ Convert.groupBy duplicateHandler aliasConverter
+                      $ Data.Map.keys types
+        typesUnion = Dhall.Union
+                   $ fmap (Just . mkImportWithModel ["types"])
+                   $ Dhall.Map.filter isStandalone typesUnionMap
+
+    writeDhall typesUnionPath typesUnion
+    writeDhall typesRecordPath typesRecord
+    writeDhall defaultsRecordPath defaultsRecord
+    writeDhall schemasRecordPath schemasRecord
+    writeDhall packageRecordPath package
+  else do
+
+    let makeRecord = Dhall.RecordLit . fmap Dhall.makeRecordField
+        typesMap = Dhall.Map.fromList
+                 $ List.sortOn snd
+                 $ Data.Map.toList
+                 $ Convert.groupBy duplicateHandler aliasConverter
+                 $ Data.Map.keys types
+        defaultsMap = Dhall.Map.filter (`elem` (Data.Map.keys defaults)) typesMap
+        schemasMap = Dhall.Map.filter (`elem` (Data.Map.keys schemas)) typesMap
+        typesRecord = makeRecord $ fmap (mkImportWithModel ["types"]) typesMap
+        typesUnion = Dhall.Union $ fmap (Just . mkImportWithModel ["types"]) $ Dhall.Map.filter isStandalone typesMap
+        defaultsRecord = makeRecord $ fmap (mkImportWithModel ["defaults"]) defaultsMap
+        schemasRecord = makeRecord $ fmap (mkImportWithModel ["schemas"]) schemasMap
+
+    writeDhall typesUnionPath typesUnion
+    writeDhall typesRecordPath typesRecord
+    writeDhall defaultsRecordPath defaultsRecord
+    writeDhall schemasRecordPath schemasRecord
+    writeDhall packageRecordPath package

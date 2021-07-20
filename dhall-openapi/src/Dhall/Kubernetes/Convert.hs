@@ -5,20 +5,22 @@
 module Dhall.Kubernetes.Convert
   ( toTypes
   , toDefault
-  , getImportsMap
   , mkImport
   , toDefinition
   , pathSplitter
+  , groupBy
+  , groupByOnParts
   ) where
 
 import Control.Applicative (empty)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Bifunctor (first, second)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Scientific (Scientific)
 import Data.Set (Set)
 import Data.Text (Text)
+import Dhall.Src                  (Src (..))
 import Dhall.Kubernetes.Types
 import GHC.Generics (Generic, Rep)
 
@@ -315,60 +317,62 @@ toDefault prefixMap definitions modelName = go
       = Dhall.Embed $ mkImport prefixMap ["types", ".."] (file <> ".dhall")
     adjustImport other = other
 
-
--- | Get a Dhall.Map filled with imports, for creating giant Records or Unions of types or defaults
-getImportsMap
-  :: Data.Map.Map Prefix Dhall.Import -- ^ Mapping of prefixes to import roots
-  -> DuplicateHandler                 -- ^ Duplicate name handler
-  -> [ModelName]                      -- ^ A list of all the object names
-  -> Text                             -- ^ The folder we should get imports from
-  -> [ModelName]                      -- ^ List of the object names we want to include in the Map
-  -> Dhall.Map.Map Text Expr
-getImportsMap prefixMap duplicateNameHandler objectNames folder toInclude
-  = Dhall.Map.fromList
-  $ Data.Map.elems
-  -- This intersection is here to "pick" common elements between "all the objects"
-  -- and "objects we want to include", already associating keys to their import
-  $ Data.Map.intersectionWithKey
-      (\(ModelName name) key _ -> (key, Dhall.Embed $ mkImport prefixMap [folder] (name <> ".dhall")))
-      namespacedToSimple
-      (Data.Map.fromList $ fmap (,()) toInclude)
+-- | Given a list of fully namespaced models, it will convert them to the desired alias name, split on '.'
+--   then create a hierarchical record based on the split parts resolving duplicates with the given duplicates handler
+groupByOnParts:: DuplicateHandler -> AliasConverter -> Data.Map.Map ModelName Expr -> Expr
+groupByOnParts duplicateNameHandler aliasConvert models =
+  let deduped = Data.Map.mapMaybe (selectObject duplicateNameHandler) $ groupByAlias partsOfModel $ Data.Map.keys models
+      retain = (`elem` Data.Map.elems deduped)
+  in toExpr $ Data.Map.mapKeys partsOfModel $ Data.Map.fromList $ filter (retain . fst) $ Data.Map.toList models
   where
-    -- | A map from namespaced names to simple ones (i.e. without the namespace)
-    namespacedToSimple
-      = Data.Map.fromList $ mapMaybe selectObject $ Data.Map.toList $ groupByObjectName objectNames
+    partsOfModel :: ModelName -> [Text]
+    partsOfModel m = Text.splitOn "." (aliasConvert m)
 
-    -- | Given a list of fully namespaced objects, it will group them by the
-    --   object name
-    groupByObjectName :: [ModelName] -> Data.Map.Map Text [ModelName]
-    groupByObjectName modelNames = Data.Map.unionsWith (<>)
-      $ (\name -> Data.Map.singleton (getKind name) [name])
-      <$> modelNames
-      where
-        getKind (ModelName name) =
-          let elems = Text.split (== '.') name
-          in elems List.!! (length elems - 1)
+    partsToExpr :: [Text] -> Expr -> Expr
+    partsToExpr [] _ = error $ "empty model"
+    partsToExpr [part] importExpr = Dhall.RecordLit $ Dhall.Map.singleton part $ Dhall.makeRecordField importExpr
+    partsToExpr (a:as) importExpr = Dhall.RecordLit $ Dhall.Map.singleton a $ Dhall.makeRecordField $ partsToExpr as importExpr
 
-    -- | There will be more than one namespaced object for a single object name
-    --   (because different API versions, and objects move around packages but k8s
-    --   cannot break compatibility so we have all of them), so we have to select one
-    --   (and we error out if it's not so after the filtering)
-    selectObject :: (Text, [ModelName]) -> Maybe (ModelName, Text)
-    selectObject (kind, namespacedNames) = fmap (,kind) namespaced
-      where
-        filterFn (ModelName name) = not $ or
-          -- The reason why we filter these two prefixes is that they are "internal"
-          -- objects. I.e. they do not appear referenced in other objects, but are
-          -- just in the Go source. E.g. see https://godoc.org/k8s.io/kubernetes/pkg/apis/core
-          [ Text.isPrefixOf "io.k8s.kubernetes.pkg.api." name
-          , Text.isPrefixOf "io.k8s.kubernetes.pkg.apis." name
-          -- We keep a list of "old" objects that should not be preferred/picked
-          ]
+    mergeFields :: Dhall.RecordField Src Dhall.Import -> Dhall.RecordField Src Dhall.Import -> Dhall.RecordField Src Dhall.Import
+    mergeFields (Dhall.RecordField _ e1 _ _) (Dhall.RecordField _ e2 _ _) = Dhall.makeRecordField $ simpleMerge e1 e2
 
-        namespaced = case filter filterFn namespacedNames of
-          [name] -> Just name
-          []     -> Nothing
-          names  -> duplicateNameHandler (kind, names)
+    simpleMerge :: Expr -> Expr -> Expr
+    simpleMerge (Dhall.RecordLit m1) (Dhall.RecordLit m2) = Dhall.RecordLit $ Dhall.Map.unionWith mergeFields m1 m2
+    simpleMerge a b = error $ "dont know how to merge: " ++ show a ++ " and " ++ show b
+
+    toExpr :: Data.Map.Map [Text] Expr -> Expr
+    toExpr = Data.Map.foldlWithKey (\existing parts expr -> simpleMerge existing $ partsToExpr parts expr) (Dhall.RecordLit Dhall.Map.empty)
+
+-- | Given a list of fully namespaced models, it will convert them to the desired record name
+--   then group them by the record name resolving duplicates with the given duplicates handler
+groupBy :: DuplicateHandler -> AliasConverter -> [ModelName] -> Data.Map.Map AliasedModelName ModelName
+groupBy duplicateNameHandler aliasConvert models = Data.Map.mapMaybe (selectObject duplicateNameHandler) $ groupByAlias aliasConvert models
+
+groupByAlias :: (Ord a) => (ModelName -> a) -> [ModelName] -> Data.Map.Map a [ModelName]
+groupByAlias aliasConvert modelNames = Data.Map.unionsWith (<>)
+  $ (\name -> Data.Map.singleton (aliasConvert name) [name])
+  <$> modelNames
+
+-- | There will be more than one namespaced object for a single object name
+--   (because different API versions, and objects move around packages but k8s
+--   cannot break compatibility so we have all of them), so we have to select one
+--   (and we error out if it's not so after the filtering)
+selectObject :: DuplicateHandler -> [ModelName] -> Maybe ModelName
+selectObject duplicateNameHandler namespacedNames = namespaced
+  where
+    filterFn (ModelName name) = not $ or
+      -- The reason why we filter these two prefixes is that they are "internal"
+      -- objects. I.e. they do not appear referenced in other objects, but are
+      -- just in the Go source. E.g. see https://godoc.org/k8s.io/kubernetes/pkg/apis/core
+      [ Text.isPrefixOf "io.k8s.kubernetes.pkg.api." name
+      , Text.isPrefixOf "io.k8s.kubernetes.pkg.apis." name
+      -- We keep a list of "old" objects that should not be preferred/picked
+      ]
+
+    namespaced = case filter filterFn namespacedNames of
+      [name] -> Just name
+      []     -> Nothing
+      names  -> duplicateNameHandler (names)
 
 stripPrefix :: (Generic a, GFromJSON Zero (Rep a)) => Int -> Value -> Parser a
 stripPrefix n = genericParseJSON options
