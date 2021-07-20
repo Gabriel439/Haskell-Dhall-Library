@@ -28,177 +28,21 @@ Extra-Source-Files:
     benchmark/examples/*.dhall
     benchmark/examples/normalize/*.dhall
     CHANGELOG.md
-    dhall-lang/Prelude/Bool/and
-    dhall-lang/Prelude/Bool/build
-    dhall-lang/Prelude/Bool/even
-    dhall-lang/Prelude/Bool/fold
-    dhall-lang/Prelude/Bool/not
-    dhall-lang/Prelude/Bool/odd
-    dhall-lang/Prelude/Bool/or
-    dhall-lang/Prelude/Bool/package.dhall
-    dhall-lang/Prelude/Bool/show
     dhall-lang/Prelude/Bool/*.dhall
-    dhall-lang/Prelude/Double/package.dhall
-    dhall-lang/Prelude/Double/show
     dhall-lang/Prelude/Double/*.dhall
-    dhall-lang/Prelude/Function/compose
-    dhall-lang/Prelude/Function/identity
-    dhall-lang/Prelude/Function/package.dhall
     dhall-lang/Prelude/Function/*.dhall
-    dhall-lang/Prelude/Integer/abs
-    dhall-lang/Prelude/Integer/add
-    dhall-lang/Prelude/Integer/clamp
-    dhall-lang/Prelude/Integer/equal
-    dhall-lang/Prelude/Integer/greaterThan
-    dhall-lang/Prelude/Integer/greaterThanEqual
-    dhall-lang/Prelude/Integer/lessThan
-    dhall-lang/Prelude/Integer/lessThanEqual
-    dhall-lang/Prelude/Integer/multiply
-    dhall-lang/Prelude/Integer/negate
-    dhall-lang/Prelude/Integer/negative
-    dhall-lang/Prelude/Integer/nonNegative
-    dhall-lang/Prelude/Integer/nonPositive
-    dhall-lang/Prelude/Integer/package.dhall
-    dhall-lang/Prelude/Integer/positive
-    dhall-lang/Prelude/Integer/show
-    dhall-lang/Prelude/Integer/subtract
-    dhall-lang/Prelude/Integer/toDouble
-    dhall-lang/Prelude/Integer/toNatural
     dhall-lang/Prelude/Integer/*.dhall
-    dhall-lang/Prelude/JSON/Format
-    dhall-lang/Prelude/JSON/Nesting
-    dhall-lang/Prelude/JSON/Tagged
-    dhall-lang/Prelude/JSON/Type
-    dhall-lang/Prelude/JSON/array
-    dhall-lang/Prelude/JSON/bool
-    dhall-lang/Prelude/JSON/core.dhall
-    dhall-lang/Prelude/JSON/double
-    dhall-lang/Prelude/JSON/integer
-    dhall-lang/Prelude/JSON/keyText
-    dhall-lang/Prelude/JSON/keyValue
-    dhall-lang/Prelude/JSON/natural
-    dhall-lang/Prelude/JSON/null
-    dhall-lang/Prelude/JSON/number
-    dhall-lang/Prelude/JSON/object
-    dhall-lang/Prelude/JSON/omitNullFields
-    dhall-lang/Prelude/JSON/package.dhall
-    dhall-lang/Prelude/JSON/render
-    dhall-lang/Prelude/JSON/renderAs
-    dhall-lang/Prelude/JSON/renderCompact.dhall
-    dhall-lang/Prelude/JSON/renderInteger.dhall
-    dhall-lang/Prelude/JSON/renderYAML
-    dhall-lang/Prelude/JSON/string
-    dhall-lang/Prelude/JSON/tagInline
-    dhall-lang/Prelude/JSON/tagNested
     dhall-lang/Prelude/JSON/*.dhall
-    dhall-lang/Prelude/List/all
-    dhall-lang/Prelude/List/any
-    dhall-lang/Prelude/List/build
-    dhall-lang/Prelude/List/concat
-    dhall-lang/Prelude/List/concatMap
-    dhall-lang/Prelude/List/default
-    dhall-lang/Prelude/List/drop
-    dhall-lang/Prelude/List/empty
-    dhall-lang/Prelude/List/filter
-    dhall-lang/Prelude/List/fold
-    dhall-lang/Prelude/List/generate
-    dhall-lang/Prelude/List/head
-    dhall-lang/Prelude/List/index
-    dhall-lang/Prelude/List/indexed
-    dhall-lang/Prelude/List/iterate
-    dhall-lang/Prelude/List/last
-    dhall-lang/Prelude/List/length
-    dhall-lang/Prelude/List/map
-    dhall-lang/Prelude/List/null
-    dhall-lang/Prelude/List/package.dhall
-    dhall-lang/Prelude/List/partition
-    dhall-lang/Prelude/List/replicate
-    dhall-lang/Prelude/List/reverse
-    dhall-lang/Prelude/List/shifted
-    dhall-lang/Prelude/List/take
-    dhall-lang/Prelude/List/unpackOptionals
-    dhall-lang/Prelude/List/unzip
-    dhall-lang/Prelude/List/zip
     dhall-lang/Prelude/List/*.dhall
-    dhall-lang/Prelude/Location/Type
-    dhall-lang/Prelude/Location/package.dhall
     dhall-lang/Prelude/Location/*.dhall
-    dhall-lang/Prelude/Map/Entry
-    dhall-lang/Prelude/Map/Type
-    dhall-lang/Prelude/Map/empty
-    dhall-lang/Prelude/Map/keyText
-    dhall-lang/Prelude/Map/keyValue
-    dhall-lang/Prelude/Map/keys
-    dhall-lang/Prelude/Map/map
-    dhall-lang/Prelude/Map/package.dhall
-    dhall-lang/Prelude/Map/values
     dhall-lang/Prelude/Map/*.dhall
-    dhall-lang/Prelude/Monoid
-    dhall-lang/Prelude/Natural/build
-    dhall-lang/Prelude/Natural/enumerate
-    dhall-lang/Prelude/Natural/equal
-    dhall-lang/Prelude/Natural/even
-    dhall-lang/Prelude/Natural/fold
-    dhall-lang/Prelude/Natural/greaterThan
-    dhall-lang/Prelude/Natural/greaterThanEqual
-    dhall-lang/Prelude/Natural/isZero
-    dhall-lang/Prelude/Natural/lessThan
-    dhall-lang/Prelude/Natural/lessThanEqual
-    dhall-lang/Prelude/Natural/listMax
-    dhall-lang/Prelude/Natural/listMin
-    dhall-lang/Prelude/Natural/max
-    dhall-lang/Prelude/Natural/min
-    dhall-lang/Prelude/Natural/odd
-    dhall-lang/Prelude/Natural/package.dhall
-    dhall-lang/Prelude/Natural/product
-    dhall-lang/Prelude/Natural/show
-    dhall-lang/Prelude/Natural/sort
-    dhall-lang/Prelude/Natural/subtract
-    dhall-lang/Prelude/Natural/sum
-    dhall-lang/Prelude/Natural/toDouble
-    dhall-lang/Prelude/Natural/toInteger
     dhall-lang/Prelude/Natural/*.dhall
     dhall-lang/Prelude/NonEmpty/*.dhall
-    dhall-lang/Prelude/Operator/package.dhall
-    dhall-lang/Prelude/Optional/all
-    dhall-lang/Prelude/Optional/any
-    dhall-lang/Prelude/Optional/build
-    dhall-lang/Prelude/Optional/concat
-    dhall-lang/Prelude/Optional/default
-    dhall-lang/Prelude/Optional/filter
-    dhall-lang/Prelude/Optional/fold
-    dhall-lang/Prelude/Optional/head
-    dhall-lang/Prelude/Optional/last
-    dhall-lang/Prelude/Optional/length
-    dhall-lang/Prelude/Optional/map
-    dhall-lang/Prelude/Optional/null
-    dhall-lang/Prelude/Optional/package.dhall
-    dhall-lang/Prelude/Optional/toList
-    dhall-lang/Prelude/Optional/unzip
+    dhall-lang/Prelude/Operator/*.dhall
     dhall-lang/Prelude/Optional/*.dhall
-    dhall-lang/Prelude/Text/concat
-    dhall-lang/Prelude/Text/concatMap
-    dhall-lang/Prelude/Text/concatMapSep
-    dhall-lang/Prelude/Text/concatSep
-    dhall-lang/Prelude/Text/default
-    dhall-lang/Prelude/Text/defaultMap
-    dhall-lang/Prelude/Text/package.dhall
-    dhall-lang/Prelude/Text/replace.dhall
-    dhall-lang/Prelude/Text/replicate
-    dhall-lang/Prelude/Text/show
-    dhall-lang/Prelude/Text/spaces
     dhall-lang/Prelude/Text/*.dhall
-    dhall-lang/Prelude/XML/Type
-    dhall-lang/Prelude/XML/attribute
-    dhall-lang/Prelude/XML/element
-    dhall-lang/Prelude/XML/emptyAttributes
-    dhall-lang/Prelude/XML/leaf
-    dhall-lang/Prelude/XML/package.dhall
-    dhall-lang/Prelude/XML/render
-    dhall-lang/Prelude/XML/text
     dhall-lang/Prelude/XML/*.dhall
     dhall-lang/Prelude/*.dhall
-    dhall-lang/Prelude/package.dhall
     dhall-lang/tests/alpha-normalization/success/unit/*.dhall
     dhall-lang/tests/alpha-normalization/success/regression/*.dhall
     dhall-lang/tests/binary-decode/failure/unit/*.dhallb
