@@ -622,6 +622,7 @@ Library
       Other-Modules:
         Dhall.Import.HTTP
         Dhall.Import.Manager
+        Dhall.Import.UserHeaders
 
     GHC-Options: -Wall -fwarn-incomplete-uni-patterns
     Default-Language: Haskell2010

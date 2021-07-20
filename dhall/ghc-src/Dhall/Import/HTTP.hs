@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE NamedFieldPuns    #-}
 
 module Dhall.Import.HTTP
     ( fetchFromHttpUrl
@@ -19,7 +20,9 @@ import Dhall.Core
     , Scheme (..)
     , URL (..)
     )
-import Dhall.Import.Types
+import Dhall.Import.Types hiding (Manager)
+import Dhall.Import.Manager (Manager(..))
+import Dhall.Import.UserHeaders (withUserHeaders)
 import Dhall.URL                        (renderURL)
 
 
@@ -245,18 +248,20 @@ type HTTPHeader = Network.HTTP.Types.Header
 
 fetchFromHttpUrl :: URL -> Maybe [HTTPHeader] -> StateT Status IO Text.Text
 fetchFromHttpUrl childURL mheaders = do
-    manager <- newManager
+    Manager { httpManager, headersManager } <- newManager
 
     let childURLString = Text.unpack (renderURL childURL)
 
     request <- liftIO (HTTP.parseUrlThrow childURLString)
 
-    let requestWithHeaders =
+    let baseRequest =
             case mheaders of
               Nothing      -> request
               Just headers -> request { HTTP.requestHeaders = headers }
 
-    let io = HTTP.httpLbs requestWithHeaders manager
+    requestWithHeaders <- liftIO (withUserHeaders headersManager baseRequest)
+
+    let io = HTTP.httpLbs requestWithHeaders httpManager
 
     let handler e = do
             let _ = e :: HttpException

@@ -1,4 +1,6 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
 
 {-| Both the GHC and GHCJS implementations of 'Dhall.Import.Manager.Manager'
     export a `Dhall.Import.Manager.Manager` type suitable for use within the
@@ -12,22 +14,28 @@
 -}
 module Dhall.Import.Manager
     ( -- * Manager
-      Manager
+      Manager(..)
     , defaultNewManager
     ) where
 
-import Network.HTTP.Client (Manager, newManager)
+import qualified Network.HTTP.Client as Client
 import qualified Network.HTTP.Client as HTTP
+import Dhall.Import.UserHeaders (UserHeaders, defaultNewUserHeaders)
 
 #ifdef USE_HTTP_CLIENT_TLS
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 #endif
 
+data Manager = Manager { httpManager :: Client.Manager, headersManager :: UserHeaders }
+
 defaultNewManager :: IO Manager
-defaultNewManager = newManager
+defaultNewManager =
+  build <$> (Client.newManager
 #ifdef USE_HTTP_CLIENT_TLS
-  tlsManagerSettings
+    tlsManagerSettings
 #else
-  HTTP.defaultManagerSettings
+    HTTP.defaultManagerSettings
 #endif
     { HTTP.managerResponseTimeout = HTTP.responseTimeoutMicro (30 * 1000 * 1000) }  -- 30 seconds
+  ) where
+    build httpManager = Manager { httpManager, headersManager = defaultNewUserHeaders }
