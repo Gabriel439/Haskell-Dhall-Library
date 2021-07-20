@@ -5,17 +5,17 @@
 module Dhall.Kubernetes.Convert
   ( toTypes
   , toDefault
-  , getImportsMap
   , mkImport
   , toDefinition
   , pathSplitter
+  , groupBySimpleModelName
   ) where
 
 import Control.Applicative (empty)
 import Data.Aeson
 import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Bifunctor (first, second)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Scientific (Scientific)
 import Data.Set (Set)
 import Data.Text (Text)
@@ -315,46 +315,27 @@ toDefault prefixMap definitions modelName = go
       = Dhall.Embed $ mkImport prefixMap ["types", ".."] (file <> ".dhall")
     adjustImport other = other
 
-
--- | Get a Dhall.Map filled with imports, for creating giant Records or Unions of types or defaults
-getImportsMap
-  :: Data.Map.Map Prefix Dhall.Import -- ^ Mapping of prefixes to import roots
-  -> DuplicateHandler                 -- ^ Duplicate name handler
-  -> [ModelName]                      -- ^ A list of all the object names
-  -> Text                             -- ^ The folder we should get imports from
-  -> [ModelName]                      -- ^ List of the object names we want to include in the Map
-  -> Dhall.Map.Map Text Expr
-getImportsMap prefixMap duplicateNameHandler objectNames folder toInclude
-  = Dhall.Map.fromList
-  $ Data.Map.elems
-  -- This intersection is here to "pick" common elements between "all the objects"
-  -- and "objects we want to include", already associating keys to their import
-  $ Data.Map.intersectionWithKey
-      (\(ModelName name) key _ -> (key, Dhall.Embed $ mkImport prefixMap [folder] (name <> ".dhall")))
-      namespacedToSimple
-      (Data.Map.fromList $ fmap (,()) toInclude)
+-- | Given a list of fully namespaced models, it will group them by the
+--   object name resolving duplicates with the given function
+groupBySimpleModelName :: DuplicateHandler -> [ModelName] -> Data.Map.Map SimpleModelName ModelName
+groupBySimpleModelName duplicateNameHandler models = Data.Map.mapMaybe selectObject $ groupBySimpleName models
   where
-    -- | A map from namespaced names to simple ones (i.e. without the namespace)
-    namespacedToSimple
-      = Data.Map.fromList $ mapMaybe selectObject $ Data.Map.toList $ groupByObjectName objectNames
-
-    -- | Given a list of fully namespaced objects, it will group them by the
-    --   object name
-    groupByObjectName :: [ModelName] -> Data.Map.Map Text [ModelName]
-    groupByObjectName modelNames = Data.Map.unionsWith (<>)
-      $ (\name -> Data.Map.singleton (getKind name) [name])
+    groupBySimpleName :: [ModelName] -> Data.Map.Map SimpleModelName [ModelName]
+    groupBySimpleName modelNames = Data.Map.unionsWith (<>)
+      $ (\name -> Data.Map.singleton (toSimpleModelName name) [name])
       <$> modelNames
-      where
-        getKind (ModelName name) =
-          let elems = Text.split (== '.') name
-          in elems List.!! (length elems - 1)
+
+    toSimpleModelName :: ModelName -> SimpleModelName
+    toSimpleModelName (ModelName name) =
+      let elems = Text.split (== '.') name
+      in elems List.!! (length elems - 1)
 
     -- | There will be more than one namespaced object for a single object name
     --   (because different API versions, and objects move around packages but k8s
     --   cannot break compatibility so we have all of them), so we have to select one
     --   (and we error out if it's not so after the filtering)
-    selectObject :: (Text, [ModelName]) -> Maybe (ModelName, Text)
-    selectObject (kind, namespacedNames) = fmap (,kind) namespaced
+    selectObject :: ([ModelName]) -> Maybe ModelName
+    selectObject (namespacedNames) = namespaced
       where
         filterFn (ModelName name) = not $ or
           -- The reason why we filter these two prefixes is that they are "internal"
@@ -368,7 +349,7 @@ getImportsMap prefixMap duplicateNameHandler objectNames folder toInclude
         namespaced = case filter filterFn namespacedNames of
           [name] -> Just name
           []     -> Nothing
-          names  -> duplicateNameHandler (kind, names)
+          names  -> duplicateNameHandler (names)
 
 stripPrefix :: (Generic a, GFromJSON Zero (Rep a)) => Int -> Value -> Parser a
 stripPrefix n = genericParseJSON options

@@ -7,6 +7,7 @@ import Control.Applicative.Combinators (option, sepBy1)
 import Data.Aeson                      (decodeFileStrict, eitherDecodeFileStrict)
 import Data.Bifunctor                  (bimap)
 import Data.Foldable                   (for_)
+import Data.Maybe                      (isJust)
 import Data.Text                       (Text, pack, unpack)
 import Data.Void                       (Void)
 import Dhall.Core                      (Expr (..))
@@ -157,7 +158,7 @@ isK8sNative :: ModelName -> Bool
 isK8sNative ModelName{..} = Text.isPrefixOf "io.k8s." unModelName
 
 preferStableResource :: DuplicateHandler
-preferStableResource (_, names) = do
+preferStableResource (names) = do
     let issue112 = Ord.comparing getAutoscaling
     let k8sOverCrd = Ord.comparing isK8sNative
     let defaultComparison = Ord.comparing getVersion
@@ -299,12 +300,13 @@ main = do
     let path = "./defaults" </> unpack name <> ".dhall"
     writeDhall path expr
 
-  let mkEmbedField = Dhall.makeRecordField . Dhall.Embed
+  let mkImport folders file = Dhall.Embed $ Convert.mkImport prefixMap folders file
+  let mkImportWithModel folders (ModelName key) = mkImport folders (key <> ".dhall")
 
-  let toSchema (ModelName key) _ _ =
+  let toSchema model _ _ =
         Dhall.RecordLit
-          [ ("Type", mkEmbedField (Convert.mkImport prefixMap ["types", ".."] (key <> ".dhall")))
-          , ("default", mkEmbedField (Convert.mkImport prefixMap ["defaults", ".."] (key <> ".dhall")))
+          [ ("Type", Dhall.makeRecordField $ mkImportWithModel ["types", ".."] model)
+          , ("default", Dhall.makeRecordField $ mkImportWithModel ["defaults", ".."] model)
           ]
 
   let schemas = Data.Map.intersectionWithKey toSchema types defaults
@@ -313,12 +315,12 @@ main = do
         Combine
           mempty
           Nothing
-          (Embed (Convert.mkImport prefixMap [ ] "schemas.dhall"))
+          (mkImport [ ] "schemas.dhall")
           (RecordLit
               [ ( "IntOrString"
-                , Dhall.makeRecordField $ Field (Embed (Convert.mkImport prefixMap [ ] "types.dhall")) $ Dhall.makeFieldSelection "IntOrString"
+                , Dhall.makeRecordField $ Field (mkImport [ ] "types.dhall") $ Dhall.makeFieldSelection "IntOrString"
                 )
-              , ( "Resource", mkEmbedField (Convert.mkImport prefixMap [ ] "typesUnion.dhall"))
+              , ( "Resource", Dhall.makeRecordField $ mkImport [ ] "typesUnion.dhall")
               ]
           )
 
@@ -328,22 +330,25 @@ main = do
     let path = "./schemas" </> unpack name <> ".dhall"
     writeDhall path expr
 
-  -- Output the types record, the defaults record, and the giant union type
-  let getImportsMap = Convert.getImportsMap prefixMap duplicateHandler objectNames
-      makeRecordMap = Dhall.Map.mapMaybe (Just . Dhall.makeRecordField)
-      objectNames = Data.Map.keys types
-      typesMap = getImportsMap "types" $ Data.Map.keys types
-      defaultsMap = getImportsMap "defaults" $ Data.Map.keys defaults
-      schemasMap = getImportsMap "schemas" $ Data.Map.keys schemas
+  let isStandalone model = and $ (\ def -> isJust $ Types.baseData def) <$> Data.Map.lookup model defs
 
-      typesRecordPath = "./types.dhall"
+  let makeRecord = Dhall.RecordLit . fmap Dhall.makeRecordField
+      typesMap = Dhall.Map.fromList $ List.sortOn snd $ Data.Map.toList $ Convert.groupBySimpleModelName duplicateHandler $ Data.Map.keys types
+      defaultsMap = Dhall.Map.filter (`elem` (Data.Map.keys defaults)) typesMap
+      schemasMap = Dhall.Map.filter (`elem` (Data.Map.keys schemas)) typesMap
+      typesRecord = makeRecord $ fmap (mkImportWithModel ["types"]) typesMap
+      typesUnion = Dhall.Union $ fmap (Just . mkImportWithModel ["types"]) $ Dhall.Map.filter isStandalone typesMap
+      defaultsRecord = makeRecord $ fmap (mkImportWithModel ["defaults"]) defaultsMap
+      schemasRecord = makeRecord $ fmap (mkImportWithModel ["schemas"]) schemasMap
+
+  let typesRecordPath = "./types.dhall"
       typesUnionPath = "./typesUnion.dhall"
       defaultsRecordPath = "./defaults.dhall"
       schemasRecordPath = "./schemas.dhall"
       packageRecordPath = "./package.dhall"
 
-  writeDhall typesUnionPath (Dhall.Union $ fmap Just typesMap)
-  writeDhall typesRecordPath (Dhall.RecordLit $ makeRecordMap typesMap)
-  writeDhall defaultsRecordPath (Dhall.RecordLit $ makeRecordMap defaultsMap)
-  writeDhall schemasRecordPath (Dhall.RecordLit $ makeRecordMap schemasMap)
+  writeDhall typesUnionPath typesUnion
+  writeDhall typesRecordPath typesRecord
+  writeDhall defaultsRecordPath defaultsRecord
+  writeDhall schemasRecordPath schemasRecord
   writeDhall packageRecordPath package
