@@ -935,6 +935,7 @@ encodeExpressionInternal encodeEmbed = go
                 (go l)
                 (encodeList (fmap Encoding.encodeString ks))
                 (go r)
+        HashOf t -> encodeList2 (Encoding.encodeInt 30) (go t)
 
         Note _ b ->
             go b

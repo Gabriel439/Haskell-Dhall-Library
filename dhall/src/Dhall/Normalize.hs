@@ -174,6 +174,7 @@ normalizeWithM ctx e0 = loop (Syntax.denote e0)
  where
  loop =  \case
     Const k -> pure (Const k)
+    HashOf v -> HashOf <$> loop v
     Var v -> pure (Var v)
     Lam cs (FunctionBinding { functionBindingVariable = x, functionBindingAnnotation = _A }) b ->
         Lam cs <$> (Syntax.makeFunctionBinding x <$> _A') <*> b'
@@ -731,6 +732,7 @@ isNormalized e0 = loop (Syntax.denote e0)
   where
     loop e = case e of
       Const _ -> True
+      HashOf e' -> loop e'
       Var _ -> True
       Lam _ (FunctionBinding Nothing _ Nothing Nothing a) b -> loop a && loop b
       Lam _ _ _ -> False

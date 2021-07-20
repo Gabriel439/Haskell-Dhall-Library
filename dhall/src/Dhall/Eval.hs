@@ -73,6 +73,7 @@ import Dhall.Syntax
     , Var (..)
     )
 
+import {-# SOURCE #-} Dhall.Import (hashExpression)
 import qualified Data.Char
 import qualified Data.Sequence as Sequence
 import qualified Data.Set
@@ -152,6 +153,7 @@ toVHPi  _                        = Nothing
 
 data Val a
     = VConst !Const
+    | VHashOf (Val a)
     | VVar !Text !Int
     | VPrimVar
     | VApp !(Val a) !(Val a)
@@ -771,6 +773,21 @@ eval !env t0 =
                     | Just t <- Map.lookup "None" m -> t
                     | otherwise                     -> error errorMsg
                 (x', y', ma') -> VMerge x' y' ma'
+        HashOf x ->
+          -- Here I assume that VEmbed only happens on top-level. TODO: is it
+          -- valid assumption? Given that "hashOf (1 + ./foo.dhall) happens
+          -- to work, probably it is okay.
+          case eval env x of
+              VEmbed y -> VHashOf (VEmbed y)
+              x' ->
+                  let e' = quote EmptyNames x'
+                      -- For some reason GHC considers "a" parameter to Expr
+                      -- as representational, not as phantom (probably due
+                      -- recursion), so instead of just "coerce", we do this
+                      -- ugly fmap.
+                      intoVoid _ = undefined
+                      t  = Text.pack . show $ hashExpression (intoVoid <$> e')
+                  in VTextLit $ VChunks [] t
         ToMap x ma ->
             case (eval env x, fmap (eval env) ma) of
                 (VRecordLit m, ma'@(Just _)) | null m ->
@@ -1064,6 +1081,7 @@ quote !env !t0 =
     case t0 of
         VConst k ->
             Const k
+        VHashOf a -> HashOf (quote env a)
         VVar !x !i ->
             Var (V x (countNames x env - i - 1))
         VApp t u ->
@@ -1266,6 +1284,8 @@ alphaNormalize = goEnv EmptyNames
         case t0 of
             Const k ->
                 Const k
+            HashOf k ->
+                HashOf k
             Var (V x i) ->
                 goVar e0 x i
             Lam cs (FunctionBinding src0 x src1 src2 t) u ->

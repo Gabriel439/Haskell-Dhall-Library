@@ -38,6 +38,7 @@ module Dhall.Parser.Token (
     _using,
     _merge,
     _toMap,
+    _hashOf,
     _assert,
     _Some,
     _None,
@@ -840,6 +841,14 @@ _merge = keyword "merge"
 -}
 _toMap :: Parser ()
 _toMap = keyword "toMap"
+
+{-| Parse @hasOf@ keyword
+  -
+    This DO NOT correspont to the official grammar because it is quick
+    and dirty hack.
+-}
+_hashOf :: Parser ()
+_hashOf = keyword "hashOf"
 
 {-| Parse the @assert@ keyword
 

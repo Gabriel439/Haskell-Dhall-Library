@@ -387,10 +387,19 @@ parsers embedded = Parsers {..}
 
                     return (\a -> ToMap a Nothing, Just "argument to ❰toMap❱")
 
-            let alternative3 =
+            let alternative3 = do
+                    try (_hashOf *> nonemptyWhitespace)
+
+                    return (\a -> HashOf a, Just "argument to ❰hashOf❱")
+
+            let alternative4 =
                     return (id, Nothing)
 
-            (f, maybeMessage) <- alternative0 <|> alternative1 <|> alternative2 <|> alternative3
+            (f, maybeMessage) <- alternative0
+                              <|> alternative1
+                              <|> alternative2
+                              <|> alternative3
+                              <|> alternative4
 
             let adapt parser =
                     case maybeMessage of

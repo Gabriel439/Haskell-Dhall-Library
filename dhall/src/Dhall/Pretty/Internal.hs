@@ -836,6 +836,7 @@ prettyPrinters characterSet =
             (  "  " <> keyword "assert"
             <> Pretty.hardline <> colon <> " " <> prettyExpression a
             )
+    prettyExpression (HashOf a) = Pretty.group (keyword "hashOf" <> " " <> prettyExpression a)
     prettyExpression a
         | Just doc <- preserveSource a =
             doc

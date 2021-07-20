@@ -218,7 +218,7 @@ infer typer = loop
     loop ctx@Ctx{..} expression = case expression of
         Const c ->
             fmap VConst (axiom c)
-
+        HashOf _ -> Right $ VText
         Var (V x0 n0) -> do
             let go TypesEmpty _ =
                     die (UnboundVariable x0)
